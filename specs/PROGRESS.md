@@ -65,6 +65,8 @@ Checklists are updated as each feature is completed. After each feature, the AI 
 - [x] Backend implemented (bugs table, bugService, POST /api/bugs)
 - [x] Frontend implemented (Create bug button, CreateBugModal with title/severity/owner/description, validation, save/cancel)
 - [x] Linter/errors resolved
+- [x] Test plan written (`specs/testing/create-bug.md`) via Playwright MCP live exploration of the Create Bug modal (defaults, validation, save, cancel, X, Escape, backdrop). Planning only — no Playwright test implementation files were added, and no application code was changed.
+- [x] Scenario 1.1 implemented in `tests/create-bug/modal-fields-visible.spec.ts` using `tests/seed.spec.ts` and existing page objects. All seven modal/field/button visibility assertions passed in Chromium: `npx playwright test 'modal-fields-visible.spec.ts' --project=chromium --reporter=list` (1 passed). Remaining planned scenarios are not covered by this step.
 
 ---
 
@@ -110,6 +112,9 @@ Checklists are updated as each feature is completed. After each feature, the AI 
 - [x] Backend implemented (N/A – client-side filter)
 - [x] Frontend implemented (search in title bar left of New Bug; live filter by title; case insensitive, collapse whitespace, normalize punctuation; X clear; sort preserved; no-results message)
 - [x] Linter/errors resolved
+- [x] Search-only E2E test plan saved in `specs/testing/board-search.md`, informed by live Playwright MCP exploration on port 5174. Planning only; no test implementation or application code added.
+- [x] Split grand-tour search coverage into independent tests in `tests/search-bug/search/atomic.spec.ts`: broad matches, subset filtering, no results, and Clear reset. Each test creates uniquely named data and cleans up its own records. Targeted Chromium run: 4 passed in parallel; targeted ESLint passed. Original grand-tour spec preserved.
+- [x] Generated `tests/search-bug/board-search.spec.ts` from the search plan using `tests/seed.spec.ts`: 14 atomic cases covering blank/subset/case/no-results/Clear, whitespace/punctuation, sorting, state filtering, cross-user access, and owner/description exclusion. Real API setup/cleanup with browser-scoped list filtering isolates each test's dataset. Chromium: 13 ordinary passes plus 1 expected failure for the specified `login`/`log-in` mismatch; targeted ESLint passed. Keyboard no-op and query-retention observations remain deferred, not product contracts.
 
 ---
 
