@@ -13,6 +13,11 @@
 3. **After each feature**, the AI **pauses** for the human to review before moving to the next feature.
 4. When there is **uncertainty** about a decision, the AI should **ask** rather than assume.
 
+## Playwright Test Work
+
+- For any Playwright test planning, creation, or refactoring, read and follow [`test-automation-patterns.md`](./test-automation-patterns.md).
+- BuggyBoard UI tests use fixture-provided page objects under `tests/pages/`, with one page-object class per file. Keep tests atomic, isolated, and structured as Arrange–Act–Assert.
+
 ## Progress Tracking
 
 - Progress is tracked in **`specs/PROGRESS.md`** as checklists (e.g. spec written, backend done, frontend done, review done) per feature.

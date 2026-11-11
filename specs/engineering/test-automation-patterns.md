@@ -1,65 +1,58 @@
 # Test Automation Patterns
 
-This document establishes **core patterns** for writing maintainable, reliable Playwright tests for BuggyBoard. All new and refactored tests must follow these conventions.
+This is the canonical, project-wide context for Playwright test automation in BuggyBoard. All new and refactored BuggyBoard UI tests must follow these patterns. When another document or example conflicts with this guide, use this guide and update the conflicting example when it is in scope.
 
-## Page Object Model (POM)
+The patterns follow [Playwright's Page Object Model guidance](https://playwright.dev/docs/pom), adapted to this repository's fixtures, routes, and test-data conventions.
 
-We use the **Page Object Model** pattern to encapsulate page structure and behavior, making tests readable, maintainable, and robust.
+## Core principles
 
-**Guiding principle:** Tests should express *what* users do (business logic), not *how* the browser does it. Page objects handle the *how*.
+- Tests describe one user-visible behavior using Arrange–Act–Assert. Keep them atomic, independent, and safe to run in parallel.
+- Use a Page Object Model (POM) for every BuggyBoard UI interaction. Tests must not build long chains of raw `page.locator()`, `getByRole()`, or `getByLabel()` calls.
+- Keep selectors and reusable UI actions/queries in page objects. Tests may assert against semantic locators exposed by those objects with Playwright's `expect`.
+- Create uniquely identifiable test data and remove only data created by that test, including when setup or assertions fail.
+- Prefer accessible role, label, and text locators. Use CSS selectors only when the application has no suitable accessible locator.
+- Use Playwright's auto-waiting assertions and locator actions. Avoid fixed sleeps and arbitrary waits.
 
-### Why Page Objects?
+## Page object structure
 
-- **Decouples tests from UI** – When the UI changes, update the page object, not dozens of tests
-- **Improves readability** – Tests read like user stories, not raw browser calls
-- **Reduces duplication** – Shared element locators and interactions live in one place
-- **Easier debugging** – Failed assertions point to page objects, not scattered test code
-- **Faster refactoring** – Rename a method once instead of updating all tests
+Page object classes live under `tests/pages/`, with exactly one class per file. Use the existing PascalCase filenames and class names. Every page object receives a Playwright `Page` in its constructor, stores the locators it owns, and offers meaningful navigation, action, and query methods.
 
-### Architecture
-
-```
+```text
 tests/
-  fixtures/            ← Fixture definitions for page objects
+  fixtures/
     pages.ts
-  pages/               ← Page object classes
+  pages/
     LoginPage.ts
     BoardPage.ts
     CreateBugModal.ts
     EditBugModal.ts
-    TitleBar.ts
-  create-bug/
-    open-create-bug-modal.spec.ts
-    create-bug-success.spec.ts
-  delete-bug/
-    should-delete.spec.ts
-  search-bug/
-    search-atomic.spec.ts
 ```
 
-### File Structure: One Page Object Per File
+BuggyBoard currently has two route-level pages: `/login` (`LoginPage`) and `/board` (`BoardPage`). Create and edit dialogs are overlays, represented by `CreateBugModal` and `EditBugModal`; they are not separate routes. Shared board header controls belong to `BoardPage`, not to a separate page object. Add a new route-level page object when the application gains a route, and keep each class in its own file.
 
-**Rule:** Each page object class occupies its own file under `tests/pages/`.
+Page objects should:
 
-File naming: `<PageName>.ts` (e.g., `LoginPage.ts`, `CreateBugModal.ts`)
+- Encapsulate selectors and browser details so UI changes have a single update point.
+- Expose stable, semantic locators for meaningful assertions.
+- Provide reusable user actions and queries with domain-oriented names.
+- Avoid test-specific assertions, test-data creation, and unrelated application/business logic.
+- Avoid broad catches, silent fallbacks, and arbitrary timeouts.
 
-```typescript
+Prefer locator properties for assertions and methods for reusable interactions:
+
+```ts
 // tests/pages/LoginPage.ts
-import { Page, Locator } from '@playwright/test';
+import { type Locator, type Page } from '@playwright/test';
 
 export class LoginPage {
-  readonly page: Page;
   readonly usernameInput: Locator;
   readonly passwordInput: Locator;
   readonly loginButton: Locator;
-  readonly errorMessage: Locator;
 
-  constructor(page: Page) {
-    this.page = page;
+  constructor(private readonly page: Page) {
     this.usernameInput = page.getByLabel('Username');
     this.passwordInput = page.getByLabel('Password');
     this.loginButton = page.getByRole('button', { name: 'Login' });
-    this.errorMessage = page.getByRole('alert');
   }
 
   async goto() {
@@ -70,312 +63,62 @@ export class LoginPage {
     await this.usernameInput.fill(username);
     await this.passwordInput.fill(password);
     await this.loginButton.click();
-    await this.page.waitForLoadState('networkidle');
-  }
-
-  async getErrorMessage(): Promise<string> {
-    return this.errorMessage.textContent() || '';
   }
 }
 ```
 
-### Page Object Class Anatomy
+Use the most user-facing locator available:
 
-1. **Constructor** – Accepts the Playwright `Page` object and initializes all locators
-2. **Locators** – Store element references as class properties (do not hardcode in methods)
-3. **Navigation** – Methods to navigate to the page (`goto()`)
-4. **User actions** – Methods that simulate user interactions (`login()`, `fillForm()`, `submit()`)
-5. **Queries** – Methods that read/verify page state (`getErrorMessage()`, `isButtonDisabled()`)
+1. `getByRole` with an accessible name
+2. `getByLabel`
+3. `getByPlaceholder` or `getByText`
+4. `getByTestId`
+5. CSS selectors as a last resort
 
-### Locator Best Practices
+Scope locators to their owning dialog, form, or region when practical. Keep brittle structural selectors private to the page object.
 
-Use **semantic locators** in order of preference:
+## Fixtures
 
-1. **Role-based** – `page.getByRole('button', { name: 'Submit' })`
-2. **Label** – `page.getByLabel('Username')`
-3. **Placeholder** – `page.getByPlaceholder('Enter email')`
-4. **Text** – `page.getByText('Welcome')`
-5. **Test ID** – `page.getByTestId('submit-button')`
-6. **CSS/XPath** – Last resort only
+Use the shared `test` and `expect` exports from `tests/fixtures/pages.ts`. Its test-scoped fixtures provide `loginPage`, `boardPage`, `createBugModal`, and `editBugModal` for the current Playwright `page`. Do not repeatedly construct these objects in test bodies.
 
-**Why?** Role-based and label-based locators are most resilient to layout changes and accessible.
-
-### Test Pattern: Arrange-Act-Assert
-
-```typescript
-import { test, expect } from '@playwright/test';
-import { LoginPage } from '../pages/LoginPage';
-
-test('user can log in with valid credentials', async ({ page }) => {
-  // Arrange
-  const loginPage = new LoginPage(page);
-  await loginPage.goto();
-
-  // Act
-  await loginPage.login('alice', 'password123');
-
-  // Assert
-  await expect(page).toHaveURL('/board');
-});
-```
-
-Each test is **atomic** – it focuses on one behavior and does not depend on state from other tests.
-
-### Common Page Object Methods
-
-| Pattern | Purpose | Example |
-|---------|---------|---------|
-| `async goto()` | Navigate to page | `await page.goto('/login')` |
-| `async <action>()` | Perform user action | `await page.login(user, pass)` |
-| `get<Value>()` | Query/read state | `await page.getErrorMessage()` |
-| `is<State>()` | Check condition | `await page.isButtonDisabled()` |
-| `has<Element>()` | Check visibility | `await page.hasSuccessMessage()` |
-
-### Combining Page Objects (Composite Pages)
-
-When a workflow spans multiple pages, use multiple page objects in the test:
-
-```typescript
-test('user creates a bug and views it on the board', async ({ page }) => {
-  // Arrange
-  const boardPage = new BoardPage(page);
-  const modalPage = new CreateBugModal(page);
-  
-  // Act
-  await boardPage.goto();
-  await boardPage.clickCreateButton();
-  await modalPage.fillBugForm({
-    title: 'Login button broken',
-    severity: 'high'
-  });
-  await modalPage.clickSubmit();
-
-  // Assert
-  await expect(boardPage.getBugRow('Login button broken')).toBeVisible();
-});
-```
-
-### Modal and Overlay Pages
-
-Modals and overlays inherit the same pattern but represent a contained UI context:
-
-```typescript
-// tests/pages/CreateBugModal.ts
-export class CreateBugModal {
-  readonly page: Page;
-  readonly titleInput: Locator;
-  readonly submitButton: Locator;
-  readonly closeButton: Locator;
-
-  constructor(page: Page) {
-    this.page = page;
-    this.titleInput = page.getByLabel('Title');
-    this.submitButton = page.getByRole('button', { name: 'Create' });
-    this.closeButton = page.getByRole('button', { name: 'Cancel' });
-  }
-
-  async fillBugForm(data: { title: string; severity: string }) {
-    await this.titleInput.fill(data.title);
-    await page.getByLabel('Severity').selectOption(data.severity);
-  }
-
-  async clickSubmit() {
-    await this.submitButton.click();
-    await this.page.waitForSelector('[role="dialog"]', { state: 'hidden' });
-  }
-}
-```
-
-## Page Object Fixtures
-
-**Rule:** All tests must obtain page object instances through fixtures, not by constructing them directly.
-
-Fixtures provide automatic teardown, proper lifecycle management, and consistent page object initialization across all tests. This prevents memory leaks, ensures isolation, and makes test code cleaner.
-
-### Why Fixtures Over Direct Construction?
-
-- **Automatic teardown** – Playwright manages page object lifecycle without manual cleanup
-- **Isolation** – Each test gets a fresh instance; no state leakage between tests
-- **Composition** – Fixtures can depend on other fixtures, enabling complex test setups
-- **Reusability** – Define once, use across many test files
-- **Easy mocking** – Replace fixtures in specific tests without changing test code
-
-### Fixture File Structure
-
-Create a single fixture file under `tests/fixtures/` for all page object fixtures:
-
-```typescript
-// tests/fixtures/pages.ts
-import { test as base, Page } from '@playwright/test';
-import { LoginPage } from '../pages/LoginPage';
-import { BoardPage } from '../pages/BoardPage';
-import { CreateBugModal } from '../pages/CreateBugModal';
-import { EditBugModal } from '../pages/EditBugModal';
-
-// Declare fixture types for TypeScript support
-type PagesFixtures = {
-  loginPage: LoginPage;
-  boardPage: BoardPage;
-  createBugModal: CreateBugModal;
-  editBugModal: EditBugModal;
-};
-
-// Create and export custom test function with fixtures
-export const test = base.extend<PagesFixtures>({
-  loginPage: async ({ page }, use) => {
-    const loginPage = new LoginPage(page);
-    await use(loginPage);
-    // Cleanup happens automatically
-  },
-
-  boardPage: async ({ page }, use) => {
-    const boardPage = new BoardPage(page);
-    await use(boardPage);
-  },
-
-  createBugModal: async ({ page }, use) => {
-    const modal = new CreateBugModal(page);
-    await use(modal);
-  },
-
-  editBugModal: async ({ page }, use) => {
-    const modal = new EditBugModal(page);
-    await use(modal);
-  },
-});
-
-export { expect } from '@playwright/test';
-```
-
-### Using Page Object Fixtures in Tests
-
-Import the custom `test` function from your fixtures file instead of `@playwright/test`:
-
-```typescript
-// tests/login/login-success.spec.ts
+```ts
 import { test, expect } from '../fixtures/pages';
 
-test('user can log in with valid credentials', async ({ loginPage, page }) => {
+test('user can log in with valid credentials', async ({ loginPage, boardPage }) => {
   // Arrange
   await loginPage.goto();
 
   // Act
-  await loginPage.login('alice', 'password123');
+  await loginPage.login('user', 'password');
 
   // Assert
-  await expect(page).toHaveURL('/board');
+  await expect(boardPage.logoutButton).toBeVisible();
 });
 ```
 
-Notice:
-- Import `test` from `../fixtures/pages`, not from `@playwright/test`
-- Destructure fixtures from test parameters: `{ loginPage, page }`
-- No manual instantiation: `const loginPage = new LoginPage(page)` ✅ Removed
-- Tests are cleaner and focus purely on behavior
+Fixtures construct page objects; they do not automatically authenticate or create application data unless that behavior is explicitly part of a named fixture. Keep authentication, test data, and UI state explicit in each test or in a narrowly scoped test fixture.
 
-### Fixture Parameters and Dependencies
+If a specialized test needs a separate `Page` (for example, to record a video), use the same page object classes with that page. Keep object construction in a dedicated fixture rather than adding raw UI locator chains to the test.
 
-Fixtures can depend on other fixtures. For example, a fixture that logs in before running a test:
+## Test structure and assertions
 
-```typescript
-// tests/fixtures/pages.ts (extended)
-import { test as base } from '@playwright/test';
+Tests should focus on a single behavior and follow Arrange–Act–Assert. Setup may contain several prerequisite actions, but avoid chaining unrelated user flows into one test.
 
-export const test = base.extend<PagesFixtures>({
-  // ... other fixtures ...
+Use page-object locators and queries in assertions. Do not locate or interact with application controls directly in the test. Playwright test APIs used for infrastructure—such as API requests for setup/cleanup, route mocking, browser context configuration, screenshots, and tracing—may remain in tests because they are not UI locator/action chains.
 
-  boardPageLoggedIn: async ({ page, loginPage }, use) => {
-    // This fixture depends on loginPage
-    // It automatically logs in before the test runs
-    await loginPage.goto();
-    await loginPage.login('alice', 'password123');
-    
-    const boardPage = new BoardPage(page);
-    await use(boardPage);
-  },
-});
-```
+Avoid grand-tour tests that perform several independently meaningful behaviors. Split broad search matches, subset filtering, no results, and clearing a search into separate tests, for example.
 
-Then use it in tests:
+## Test data and isolation
 
-```typescript
-test('user can create a bug from the board', async ({ boardPageLoggedIn }) => {
-  // Already logged in, ready to interact with board
-  await boardPageLoggedIn.clickCreateButton();
-  // ...
-});
-```
+- Give every test's data a unique, recognizable identifier (for example, a UUID suffix).
+- Create data through the UI when the behavior under test is creation; API setup is appropriate when creation is only a prerequisite for another behavior.
+- Track the IDs of records created by the test and clean them up in `finally` or a test-scoped fixture teardown.
+- Check setup and cleanup responses explicitly. Do not silently ignore failures.
+- Do not share mutable test data across tests or depend on execution order.
+- Ensure a test can run alone and in parallel with its suite.
 
-### Scoping Fixtures
+## Existing tests and examples
 
-Control when fixtures are created and destroyed using the `scope` option:
+When modifying an existing BuggyBoard UI test, bring its UI interaction onto the page objects and fixtures. Raw Playwright APIs are appropriate for browser/test infrastructure, not as a substitute for a page object. API-only tests do not need UI page objects. Tests for external demonstration sites are outside the BuggyBoard POM requirement unless they exercise BuggyBoard UI.
 
-```typescript
-export const test = base.extend<PagesFixtures>({
-  // scope: 'test' (default) – Fresh instance per test
-  loginPage: async ({ page }, use) => {
-    const loginPage = new LoginPage(page);
-    await use(loginPage);
-  },
-
-  // scope: 'worker' – Shared across tests in same worker (faster)
-  sharedResource: async ({}, use) => {
-    const resource = await setupExpensiveResource();
-    await use(resource);
-    await resource.cleanup();
-  },
-});
-```
-
-Use `scope: 'test'` (default) for page objects to ensure test isolation.
-
-### Common Fixture Patterns
-
-#### Pre-authenticated Fixture
-
-```typescript
-boardPageAuthenticatedAs: async ({ page }, use, testInfo) => {
-  const username = testInfo.title.includes('admin') ? 'admin' : 'user';
-  const loginPage = new LoginPage(page);
-  await loginPage.goto();
-  await loginPage.login(username, 'password123');
-  
-  const boardPage = new BoardPage(page);
-  await use(boardPage);
-},
-```
-
-#### Modal/Dialog Fixture
-
-```typescript
-createModalOpen: async ({ page, boardPage }, use) => {
-  const modal = new CreateBugModal(page);
-  await boardPage.goto();
-  await boardPage.clickCreateButton();
-  await modal.waitForVisible();
-  await use(modal);
-},
-```
-
-### Anti-Pattern: Constructing Page Objects in Tests
-
-| ❌ Don't Do This | ✅ Do This Instead |
-|---|---|
-| `const loginPage = new LoginPage(page);` | Import from `../fixtures/pages` and request as parameter |
-| Instantiate in every test | Define once in fixture, reuse everywhere |
-| Manual cleanup in test | Fixtures handle automatic teardown |
-| Mixed import sources (`@playwright/test` + custom) | Always import `test` from `../fixtures/pages` |
-
-### References
-
-- [Playwright Test Fixtures](https://playwright.dev/docs/test-fixtures)
-- [Fixture Dependencies](https://playwright.dev/docs/test-fixtures#fixture-dependencies)
-- [Fixture Scope](https://playwright.dev/docs/test-fixtures#scope)
-- [Playwright Page Object Model](https://playwright.dev/docs/pom)
-- [Playwright Best Practices](https://playwright.dev/docs/best-practices)
-- [Playwright Locators](https://playwright.dev/docs/locators)
-
----
-
-**Last updated:** May 2026  
-**Maintained by:** Engineering team
+When adding a reusable interaction or assertion query, check the existing objects under `tests/pages/` first and extend the appropriate class instead of duplicating selectors or adding multiple page-object classes to one file.

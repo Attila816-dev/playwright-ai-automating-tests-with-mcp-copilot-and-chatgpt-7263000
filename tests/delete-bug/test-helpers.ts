@@ -1,48 +1,55 @@
-import { Page, expect } from '@playwright/test';
+import { APIRequestContext, expect } from '@playwright/test';
 import { BoardPage } from '../pages/BoardPage';
 import { CreateBugModal } from '../pages/CreateBugModal';
-import { EditBugModal } from '../pages/EditBugModal';
+
+interface BugRecord {
+  id: number;
+  title: string;
+}
 
 export async function createBug(
-  page: Page,
   title: string,
   boardPage: BoardPage,
   createBugModal: CreateBugModal,
-) {
+): Promise<number> {
   await boardPage.clickNewBugButton();
   await expect(createBugModal.dialog).toBeVisible();
   await createBugModal.fillBugForm({
     title,
     severity: 'mid',
-    owner: 'tester',
     description: 'created by test',
   });
   await createBugModal.submit();
 
-  const row = page.locator('table[aria-label="Bugs"] >> text=' + title).first();
-  await row.waitFor({ state: 'visible', timeout: 5000 });
+  const row = await boardPage.getBugRowByTitle(title);
+  await expect(row).toBeVisible();
+  const id = Number(await row.getByRole('cell').first().innerText());
+  if (!Number.isSafeInteger(id)) {
+    throw new Error(`Could not read the ID of created bug "${title}".`);
+  }
+  return id;
 }
 
 export async function deleteBugIfExists(
-  page: Page,
-  title: string,
-  boardPage: BoardPage,
-  editBugModal: EditBugModal,
+  request: APIRequestContext,
+  title: string | undefined,
 ) {
-  const locator = page.locator('table[aria-label="Bugs"] >> text=' + title);
-  const count = await locator.count();
-  if (count === 0) return;
+  if (!title) return;
 
-  if (await editBugModal.dialog.isVisible().catch(() => false)) {
-    if (await editBugModal.confirmationDialog.isVisible().catch(() => false)) {
-      await editBugModal.cancelDeleteConfirmation();
-    }
-    await editBugModal.cancel();
+  const listResponse = await request.get('/api/bugs');
+  if (listResponse.status() !== 200) {
+    throw new Error(`Could not list bugs for cleanup: ${listResponse.status()}.`);
   }
 
-  await boardPage.clickBugByTitle(title);
-  await expect(editBugModal.dialog).toBeVisible();
-  await editBugModal.delete();
+  const bugs = (await listResponse.json()) as BugRecord[];
+  const testBugs = bugs.filter((bug) => bug.title === title);
 
-  await expect(locator).toHaveCount(0);
+  for (const bug of testBugs) {
+    const deleteResponse = await request.delete(`/api/bugs/${bug.id}`);
+    if (deleteResponse.status() !== 204 && deleteResponse.status() !== 404) {
+      throw new Error(
+        `Could not clean up test bug "${title}" (ID ${bug.id}): ${deleteResponse.status()}.`,
+      );
+    }
+  }
 }

@@ -1,27 +1,39 @@
 import { test, expect } from '../fixtures/pages';
 import { createBug, deleteBugIfExists } from './test-helpers';
 
-test.describe('Delete Bug - from details view', () => {
-  let title: string;
+test.describe('Delete Bug - confirm deletion', () => {
+  let title: string | undefined;
+  let bugId: number;
 
-  test.beforeEach(async ({ page, loginPage, boardPage, createBugModal }) => {
+  test.beforeEach(async ({ loginPage, boardPage, createBugModal }, testInfo) => {
     await loginPage.loginWithFirstUser();
-    title = `delete-bug-${Date.now()}`;
-    await createBug(page, title, boardPage, createBugModal);
+    title = `delete-bug-${Date.now()}-${testInfo.workerIndex}-${Math.random().toString(36).slice(2)}`;
+    bugId = await createBug(title, boardPage, createBugModal);
   });
 
-  test.afterEach(async ({ page, boardPage, editBugModal }) => {
-    await deleteBugIfExists(page, title, boardPage, editBugModal);
+  test.afterEach(async ({ request }) => {
+    await deleteBugIfExists(request, title);
   });
 
-  test('should_delete_from_details_view', async ({ page, boardPage, editBugModal }) => {
-    // Act - open details (row click)
+  test('confirming deletion removes the fresh bug', async ({ boardPage, editBugModal, request }) => {
+    if (!title) throw new Error('Test bug title was not initialized.');
+
+    // Arrange
+    const row = await boardPage.getBugRowByTitle(title);
+    await expect(row).toBeVisible();
+
+    // Act
     await boardPage.clickBugByTitle(title);
     await expect(editBugModal.dialog).toBeVisible();
-    await editBugModal.delete();
+    await editBugModal.openDeleteConfirmation();
+    await expect(editBugModal.confirmationDialog).toBeVisible();
+    await editBugModal.confirmDeletion();
 
     // Assert
-    const titleLocator = page.locator('table[aria-label="Bugs"] >> text=' + title);
-    await expect(titleLocator).toHaveCount(0);
+    await expect(editBugModal.dialog).toBeHidden();
+    await expect(editBugModal.confirmationDialog).toBeHidden();
+    await expect(row).toHaveCount(0);
+    const response = await request.get(`/api/bugs/${bugId}`);
+    expect(response.status()).toBe(404);
   });
 });

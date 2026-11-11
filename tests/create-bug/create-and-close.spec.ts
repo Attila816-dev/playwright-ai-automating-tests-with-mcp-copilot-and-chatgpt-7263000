@@ -1,67 +1,61 @@
-import { test, expect } from '@playwright/test';
-import { mkdirSync, readFileSync } from 'fs';
+import { test, expect } from '../fixtures/pages';
+import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'fs';
 import { join } from 'path';
-import { LoginPage } from '../pages/LoginPage';
-import { BoardPage } from '../pages/BoardPage';
-import { CreateBugModal } from '../pages/CreateBugModal';
+import { cleanupCreatedBug } from './test-helpers';
 
-test('create a bug then edit it to Closed and capture screenshots', async ({ page }) => {
-  const screenshotsDir = join(process.cwd(), 'playwright-screenshots');
+let createdBugTitle: string | undefined;
+let createdBugId: number | undefined;
+
+test.afterEach(async ({ request }) => {
+  await cleanupCreatedBug(request, createdBugTitle, createdBugId);
+  createdBugTitle = undefined;
+  createdBugId = undefined;
+});
+
+test('create a bug then edit it to Closed and capture screenshots', async ({
+  page,
+  loginPage,
+  boardPage,
+  createBugModal,
+  editBugModal,
+}, testInfo) => {
+  const screenshotsDir = testInfo.outputPath('playwright-screenshots');
   mkdirSync(screenshotsDir, { recursive: true });
 
-  // Read credentials from users.json (first user)
-  const usersPath = join(process.cwd(), 'users.json');
-  const usersRaw = readFileSync(usersPath, 'utf-8');
-  const users = JSON.parse(usersRaw) as Array<{ username: string; password: string }>;
-  const user = users[0];
-
-  const login = new LoginPage(page);
-  await login.goto();
-  await login.login(user.username, user.password);
-  await page.waitForURL('**/board');
+  await loginPage.loginWithFirstUser();
   await page.screenshot({ path: join(screenshotsDir, '01-logged-in.png'), fullPage: true });
 
-  const board = new BoardPage(page);
-  await board.clickNewBugButton();
+  await boardPage.clickNewBugButton();
   await page.screenshot({ path: join(screenshotsDir, '02-create-modal-open.png') });
 
-  const createModal = new CreateBugModal(page);
-  const title = `e2e bug ${Date.now()}`;
-  await createModal.fillBugForm({
+  const title = `e2e bug ${randomUUID()}`;
+  createdBugTitle = title;
+  await createBugModal.fillBugForm({
     title,
     severity: 'high',
-    owner: user.username,
+    owner: 'buggy',
     description: 'Created by automated test',
   });
   await page.screenshot({ path: join(screenshotsDir, '03-create-filled.png') });
-  await createModal.submit();
+  await createBugModal.submit();
 
-  // Wait for the new bug to appear in the table
-  const row = await board.getBugRowByTitle(title);
+  const row = await boardPage.getBugRowByTitle(title);
   await expect(row).toBeVisible();
+  createdBugId = await boardPage.getBugIdByTitle(title);
   await page.screenshot({ path: join(screenshotsDir, '04-bug-created.png'), fullPage: true });
 
-  // Open the bug for editing
-  await board.clickBugByTitle(title);
-  // Wait for edit dialog to appear
-  await page.waitForSelector('[role="dialog"]');
+  await boardPage.clickBugByTitle(title);
+  await expect(editBugModal.dialog).toBeVisible();
   await page.screenshot({ path: join(screenshotsDir, '05-edit-modal-open.png') });
 
-  // Change state to Closed (select in the edit dialog has id edit-bug-state)
-  const stateSelect = page.locator('#edit-bug-state');
-  await stateSelect.selectOption({ value: 'closed' });
+  await editBugModal.stateSelect.selectOption('closed');
   await page.screenshot({ path: join(screenshotsDir, '06-state-set-to-closed.png') });
 
-  // Click Save in edit modal
-  await page.getByRole('button', { name: 'Save' }).click();
-  // Wait for modal to close and board to refresh
-  await page.waitForSelector('[role="dialog"]', { state: 'hidden' });
+  await editBugModal.save();
 
-  // Show Closed bugs and verify the bug appears there
-  await page.getByRole('button', { name: 'Closed' }).click();
-  // Wait a moment for fetch to complete
-  await page.waitForTimeout(500);
-  const closedRow = await board.getBugRowByTitle(title);
+  await boardPage.selectStateFilter('Closed');
+  const closedRow = await boardPage.getBugRowByTitle(title);
   await expect(closedRow).toBeVisible();
   await page.screenshot({ path: join(screenshotsDir, '07-bug-closed-in-board.png'), fullPage: true });
 });

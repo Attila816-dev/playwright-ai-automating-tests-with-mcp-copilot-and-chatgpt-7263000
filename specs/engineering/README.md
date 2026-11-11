@@ -8,6 +8,6 @@ This folder holds **technical context**: how we build and run the app, and what 
 - **api-conventions.md** – Backend API routes must use the `/api` path prefix.
 - **pipelines.md** – CI/CD pipeline requirements for this repository, including GitHub Actions workflow naming, triggers, caching, and Playwright report artifacts.
 - **gherkin-standards.md** – How to write Gherkin scenarios in feature specs (BDD, Given/When/Then, one behavior per scenario, Cucumber syntax).
-- **test-automation-patterns.md** – Test automation standards: Page Object Model (POM), page object file structure (`tests/pages/`), locator best practices, and test patterns (Arrange-Act-Assert). **All new and refactored Playwright tests must use page objects.**
+- **test-automation-patterns.md** – The canonical, project-wide Playwright test automation guide: Page Object Model (POM), fixtures, page-object structure (`tests/pages/`), locator practices, test isolation, and Arrange-Act-Assert. **All new and refactored BuggyBoard UI tests must use page objects.**
 
 You can add more engineering docs here (e.g. folder structure, deployment, security) as needed.

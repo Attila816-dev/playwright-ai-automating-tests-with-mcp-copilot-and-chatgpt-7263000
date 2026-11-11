@@ -1,5 +1,4 @@
 import { test, expect } from '../fixtures/pages';
-import { LoginPage } from '../pages/LoginPage';
 
 const bugData = [
   { title: 'Login page crashes on empty password', severity: 'HIGH', owner: 'buggy', description: 'App crashes when submitting an empty password on login.' },
@@ -18,7 +17,7 @@ test.describe('Search Bug', () => {
   let createdBugIds: number[] = [];
   let workerBugData: typeof bugData;
 
-  test.beforeEach(async ({ page, request, loginPage, boardPage }, testInfo) => {
+  test.beforeEach(async ({ request, loginPage, boardPage }, testInfo) => {
     // Create worker-scoped bug data to avoid collisions in parallel execution
     const workerIndex = testInfo.workerIndex;
     workerBugData = bugData.map(bug => ({
@@ -39,7 +38,7 @@ test.describe('Search Bug', () => {
     }
 
     // Reload so the board reflects the newly created bugs
-    await page.reload();
+    await boardPage.reload();
   });
 
   test.afterEach(async ({ request }) => {

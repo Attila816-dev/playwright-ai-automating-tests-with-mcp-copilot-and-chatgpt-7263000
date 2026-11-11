@@ -8,7 +8,6 @@ export interface BugFormData {
 }
 
 export class CreateBugModal {
-  readonly page: Page;
   readonly dialog: Locator;
   readonly titleInput: Locator;
   readonly severitySelect: Locator;
@@ -17,8 +16,7 @@ export class CreateBugModal {
   readonly saveButton: Locator;
   readonly cancelButton: Locator;
 
-  constructor(page: Page) {
-    this.page = page;
+  constructor(private readonly page: Page) {
     this.dialog = page.getByRole('dialog', { name: 'Create bug' });
     this.titleInput = this.dialog.getByLabel('Title');
     this.severitySelect = this.dialog.getByLabel('Severity');
@@ -43,17 +41,15 @@ export class CreateBugModal {
 
   async submit() {
     await this.saveButton.click();
-    // Wait for modal to close
-    await this.page.waitForSelector('[role="dialog"]', { state: 'hidden' });
+    await this.dialog.waitFor({ state: 'hidden' });
   }
 
   async cancel() {
     await this.cancelButton.click();
-    // Wait for modal to close
-    await this.page.waitForSelector('[role="dialog"]', { state: 'hidden' });
+    await this.dialog.waitFor({ state: 'hidden' });
   }
 
   async isVisible(): Promise<boolean> {
-    return await this.dialog.isVisible().catch(() => false);
+    return this.dialog.isVisible();
   }
 }
